@@ -50,14 +50,18 @@ export default function PrecisionDataScan() {
   const [dragOver, setDragOver] = useState(false);
   const [currency, setCurrency] = useState("₦");
   const [businessName, setBusinessName] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   const parseFile = useCallback((file) => {
     setError("");
+    setIsLoading(true);
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
       dynamicTyping: false,
+      worker: true,
       complete: (res) => {
+        setIsLoading(false);
         if (!res.data || res.data.length === 0) {
           setError("That file came back empty. Check it has headers and at least one row of data.");
           return;
@@ -66,7 +70,10 @@ export default function PrecisionDataScan() {
         setFields(res.meta.fields || Object.keys(res.data[0]));
         setFileName(file.name);
       },
-      error: () => setError("Couldn't read that file. Make sure it's a valid CSV."),
+      error: () => {
+        setIsLoading(false);
+        setError("Couldn't read that file. Make sure it's a valid CSV.");
+      },
     });
   }, []);
 
@@ -191,7 +198,19 @@ export default function PrecisionDataScan() {
       </header>
 
       <main style={{ maxWidth: 980, margin: "0 auto", padding: "32px 24px 64px" }}>
-        {!rows && (
+        {isLoading && (
+          <div style={{ textAlign: "center", padding: "80px 24px" }}>
+            <div style={{
+              width: 36, height: 36, margin: "0 auto 20px", borderRadius: "50%",
+              border: `3px solid #E5E0D2`, borderTopColor: GOLD,
+              animation: "spin 0.8s linear infinite"
+            }} />
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            <div className="fraunces" style={{ fontSize: 17, color: NAVY }}>Reading your file...</div>
+            <div style={{ fontSize: 13, color: SLATE, marginTop: 6 }}>Large files can take a few seconds.</div>
+          </div>
+        )}
+        {!rows && !isLoading && (
           <div>
             <div
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -432,4 +451,4 @@ export default function PrecisionDataScan() {
       )}
     </div>
   );
-    }
+}
