@@ -108,7 +108,9 @@ export default function PrecisionDataScan() {
         const d = r[dateCol];
         const v = parseFloat(r[metric]);
         if (!d || isNaN(v)) return;
-        const key = new Date(d).toISOString().slice(0, 10);
+        const parsed = new Date(d);
+        if (isNaN(parsed.getTime())) return;
+        const key = parsed.toISOString().slice(0, 10);
         byDate[key] = (byDate[key] || 0) + v;
       });
       const sorted = Object.entries(byDate).sort(([a], [b]) => (a < b ? -1 : 1));
