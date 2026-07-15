@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo } from "react";
 import Papa from "papaparse";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Cell
+  Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend
 } from "recharts";
 import { Upload, TrendingUp, TrendingDown, AlertCircle, FileSpreadsheet, ChevronRight, Download } from "lucide-react";
 
@@ -14,6 +14,7 @@ const PAPER = "#F6F3EC";
 const SLATE = "#6B7690";
 const RUST = "#B3492B";
 const SAGE = "#5C8368";
+const PIE_COLORS = [GOLD, NAVY, SAGE, RUST, "#8B7BA8", "#C9BE9A", SLATE, GOLD_SOFT];
 
 function detectColumnTypes(rows, fields) {
   const types = {};
@@ -51,6 +52,7 @@ export default function PrecisionDataScan() {
   const [currency, setCurrency] = useState("₦");
   const [businessName, setBusinessName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedMetric, setSelectedMetric] = useState(null);
 
   const parseFile = useCallback((file) => {
     setError("");
@@ -100,9 +102,12 @@ export default function PrecisionDataScan() {
       return { col, sum, avg, max, min, count: vals.length };
     });
 
+    const activeMetric = (selectedMetric && numericCols.includes(selectedMetric)) ? selectedMetric : numericCols[0];
+    const activeStat = numericStats.find((s) => s.col === activeMetric);
+
     let trend = null;
-    if (dateCol && numericCols.length > 0) {
-      const metric = numericCols[0];
+    if (dateCol && activeMetric) {
+      const metric = activeMetric;
       const byDate = {};
       rows.forEach((r) => {
         const d = r[dateCol];
@@ -120,8 +125,8 @@ export default function PrecisionDataScan() {
     }
 
     let breakdown = null;
-    if (catCol && numericCols.length > 0) {
-      const metric = numericCols[0];
+    if (catCol && activeMetric) {
+      const metric = activeMetric;
       const byCat = {};
       rows.forEach((r) => {
         const c = r[catCol] || "Unlabeled";
@@ -134,8 +139,8 @@ export default function PrecisionDataScan() {
     }
 
     const insights = [];
-    if (numericStats[0]) {
-      const s = numericStats[0];
+    if (activeStat) {
+      const s = activeStat;
       insights.push(`Total ${s.col}: ${currency}${fmt(s.sum)} across ${s.count} records.`);
       insights.push(`Average ${s.col} per record is ${currency}${fmt(s.avg)}.`);
     }
@@ -157,12 +162,12 @@ export default function PrecisionDataScan() {
       const share = totalAll ? ((top.value / totalAll) * 100).toFixed(0) : null;
       insights.push(`"${top.name}" leads ${breakdown.catCol} at ${currency}${fmt(top.value)}${share ? ` (${share}% of the top ${breakdown.data.length})` : ""}.`);
     }
-    if (numericStats[0] && numericStats[0].max > numericStats[0].avg * 3) {
-      insights.push(`There's an outlier in ${numericStats[0].col} — a value far above the average. Worth a manual check.`);
+    if (activeStat && activeStat.max > activeStat.avg * 3) {
+      insights.push(`There's an outlier in ${activeStat.col} — a value far above the average. Worth a manual check.`);
     }
 
-    return { types, numericCols, numericStats, dateCol, catCol, trend, breakdown, insights, rowCount: rows.length };
-  }, [rows, fields, currency]);
+    return { types, numericCols, numericStats, activeMetric, activeStat, dateCol, catCol, trend, breakdown, insights, rowCount: rows.length };
+  }, [rows, fields, currency, selectedMetric]);
 
   const reset = () => { setRows(null); setFields([]); setFileName(""); setError(""); };
 
@@ -183,6 +188,10 @@ export default function PrecisionDataScan() {
           .app-shell { display: none !important; }
         }
         .print-report { display: none; }
+        .breakdown-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; margin-bottom: 24px; }
+        @media (max-width: 700px) {
+          .breakdown-grid { grid-template-columns: 1fr; }
+        }
       `}</style>
 
       <div className="app-shell">
@@ -272,6 +281,14 @@ export default function PrecisionDataScan() {
                 <span style={{ fontSize: 13, color: SLATE }}>{fileName} · {analysis.rowCount} rows</span>
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                {analysis.numericCols.length > 1 && (
+                  <select value={analysis.activeMetric} onChange={(e) => setSelectedMetric(e.target.value)}
+                    style={{ fontSize: 13, border: `1px solid ${GOLD}`, borderRadius: 3, padding: "6px 10px", background: "#fff", color: NAVY, fontWeight: 600 }}>
+                    {analysis.numericCols.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                )}
                 <input
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
@@ -356,25 +373,76 @@ export default function PrecisionDataScan() {
               </div>
             )}
 
-            {/* Breakdown chart */}
+            {/* Breakdown charts — bar + donut */}
             {analysis.breakdown && (
-              <div style={{ background: "#fff", border: "1px solid #E5E0D2", borderRadius: 4, padding: "20px 20px 8px", marginBottom: 24 }}>
-                <div className="fraunces" style={{ fontSize: 16, color: NAVY, fontWeight: 600, marginBottom: 12 }}>
-                  {analysis.breakdown.metric} by {analysis.breakdown.catCol}
+              <div className="breakdown-grid">
+                <div style={{ background: "#fff", border: "1px solid #E5E0D2", borderRadius: 4, padding: "20px 20px 8px", minWidth: 0 }}>
+                  <div className="fraunces" style={{ fontSize: 16, color: NAVY, fontWeight: 600, marginBottom: 12 }}>
+                    {analysis.breakdown.metric} by {analysis.breakdown.catCol}
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={analysis.breakdown.data} layout="vertical" margin={{ left: 8 }}>
+                      <CartesianGrid stroke="#EFEADE" strokeDasharray="3 3" horizontal={false} />
+                      <XAxis type="number" tick={{ fontSize: 11, fill: SLATE }} axisLine={false} tickLine={false} tickFormatter={fmt} />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 11.5, fill: NAVY }} width={110} axisLine={false} tickLine={false} />
+                      <Tooltip formatter={(v) => `${currency}${fmt(v)}`} contentStyle={{ fontSize: 12, borderRadius: 4, border: "1px solid #E5E0D2" }} />
+                      <Bar dataKey="value" radius={[0, 3, 3, 0]}>
+                        {analysis.breakdown.data.map((_, i) => (
+                          <Cell key={i} fill={i === 0 ? GOLD : "#C9BE9A"} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={analysis.breakdown.data} layout="vertical" margin={{ left: 8 }}>
-                    <CartesianGrid stroke="#EFEADE" strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" tick={{ fontSize: 11, fill: SLATE }} axisLine={false} tickLine={false} tickFormatter={fmt} />
-                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11.5, fill: NAVY }} width={110} axisLine={false} tickLine={false} />
-                    <Tooltip formatter={(v) => `${currency}${fmt(v)}`} contentStyle={{ fontSize: 12, borderRadius: 4, border: "1px solid #E5E0D2" }} />
-                    <Bar dataKey="value" radius={[0, 3, 3, 0]}>
-                      {analysis.breakdown.data.map((_, i) => (
-                        <Cell key={i} fill={i === 0 ? GOLD : "#C9BE9A"} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+
+                <div style={{ background: "#fff", border: "1px solid #E5E0D2", borderRadius: 4, padding: "20px 20px 8px", minWidth: 0 }}>
+                  <div className="fraunces" style={{ fontSize: 16, color: NAVY, fontWeight: 600, marginBottom: 12 }}>
+                    Share of total
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <PieChart>
+                      <Pie
+                        data={analysis.breakdown.data}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius="55%"
+                        outerRadius="80%"
+                        paddingAngle={2}
+                      >
+                        {analysis.breakdown.data.map((_, i) => (
+                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v) => `${currency}${fmt(v)}`} contentStyle={{ fontSize: 12, borderRadius: 4, border: "1px solid #E5E0D2" }} />
+                      <Legend wrapperStyle={{ fontSize: 11, color: SLATE }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Extra KPI row for other numeric columns */}
+            {analysis.numericStats.length > 1 && (
+              <div style={{ background: "#fff", border: "1px solid #E5E0D2", borderRadius: 4, padding: "20px", marginBottom: 24 }}>
+                <div className="fraunces" style={{ fontSize: 16, color: NAVY, fontWeight: 600, marginBottom: 14 }}>
+                  All metrics at a glance
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14 }}>
+                  {analysis.numericStats.map((s) => (
+                    <button
+                      key={s.col}
+                      onClick={() => setSelectedMetric(s.col)}
+                      style={{
+                        textAlign: "left", padding: 12, borderRadius: 3, cursor: "pointer",
+                        border: s.col === analysis.activeMetric ? `1.5px solid ${GOLD}` : "1px solid #E5E0D2",
+                        background: s.col === analysis.activeMetric ? "#FBF6E9" : PAPER,
+                      }}
+                    >
+                      <div style={{ fontSize: 11, color: SLATE, textTransform: "capitalize", marginBottom: 4 }}>{s.col}</div>
+                      <div className="fraunces" style={{ fontSize: 17, color: NAVY, fontWeight: 600 }}>{currency}{fmt(s.sum)}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
